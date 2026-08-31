@@ -63,6 +63,32 @@ func TestPoolQuoteAndFlashSwap(t *testing.T) {
 	}
 }
 
+func TestQuoterQuoteExactOutput(t *testing.T) {
+	poolAddress, _ := onchainSui.ParseAddress("0x9")
+	pool := Pool{Address: poolAddress, InitialVersion: 3, CoinTypeA: "0x2::sui::SUI", CoinTypeB: "0x3::usdc::USDC"}
+	value := make([]byte, 135)
+	binary.LittleEndian.PutUint64(value[2:10], 100)
+	binary.LittleEndian.PutUint64(value[18:26], 102)
+	binary.LittleEndian.PutUint64(value[42:50], 2)
+	value[74] = 11
+	simulator := &testSimulator{result: &onchainSui.SimulationResult{CommandResults: []onchainSui.SimulationCommandResult{{ReturnValues: []onchainSui.CommandOutput{{BCS: value}}}}}}
+	quoter, err := NewQuoter(testDeployment(), simulator)
+	if err != nil {
+		t.Fatalf("NewQuoter() returned an unexpected error: %v", err)
+	}
+	sender, _ := onchainSui.ParseAddress("0xa")
+	quote, err := quoter.QuoteExactOutput(context.Background(), QuoteExactOutputParams{Sender: sender, Pool: pool, AmountOut: 100, A2B: false, SqrtPriceLimit: big.NewInt(5)})
+	if err != nil {
+		t.Fatalf("QuoteExactOutput() returned an unexpected error: %v", err)
+	}
+	if quote.AmountIn != 102 || quote.AmountOut != 100 {
+		t.Fatalf("QuoteExactOutput() = %+v", quote)
+	}
+	if len(simulator.request.Transaction.Inputs) != 5 || len(simulator.request.Transaction.Inputs[2].Pure) != 1 || simulator.request.Transaction.Inputs[2].Pure[0] != 0 {
+		t.Fatalf("transaction inputs = %+v", simulator.request.Transaction.Inputs)
+	}
+}
+
 func testDeployment() Deployment {
 	packageAddress, _ := onchainSui.ParseAddress("0x1")
 	config, _ := onchainSui.ParseAddress("0x2")

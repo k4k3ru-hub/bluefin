@@ -110,6 +110,25 @@ func (c *Client) QuoteExactInput(ctx context.Context, params QuoteExactInputPara
 	return c.quoter.QuoteExactInput(ctx, params)
 }
 
+// QuoteExactOutput simulates one Bluefin Spot exact-output swap.
+//
+// Parameters:
+//   - ctx: Request context.
+//   - params: Quote parameters.
+//
+// Returns:
+//   - Quote result.
+//   - Quote error.
+//
+// Version:
+//   - 2026-08-31: Added.
+func (c *Client) QuoteExactOutput(ctx context.Context, params QuoteExactOutputParams) (QuoteResult, error) {
+	if c == nil || c.quoter == nil {
+		return QuoteResult{}, fmt.Errorf("failed to quote bluefin spot exact output: client=null")
+	}
+	return c.quoter.QuoteExactOutput(ctx, params)
+}
+
 // Swaps gets historical Bluefin Spot swaps.
 //
 // Parameters:
