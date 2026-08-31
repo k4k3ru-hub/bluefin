@@ -298,13 +298,15 @@ type Swap struct {
 //   - Parse error.
 //
 // Version:
+//   - 2026-08-31: Preserved the checkpoint from historical events.
 //   - 2026-08-30: Added.
 func ParseSwapEvent(event onchainSui.Event) (Swap, error) {
 	swap, err := parseEvent(event.Type, event.JSON)
 	if err != nil {
 		return Swap{}, err
 	}
-	swap.SequenceNumber, swap.Transaction, swap.Timestamp = event.SequenceNumber, event.Transaction, event.Timestamp
+	swap.Checkpoint, swap.SequenceNumber = event.Checkpoint, event.SequenceNumber
+	swap.Transaction, swap.Timestamp = event.Transaction, event.Timestamp
 	return swap, nil
 }
 

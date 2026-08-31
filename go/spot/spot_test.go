@@ -89,6 +89,21 @@ func TestQuoterQuoteExactOutput(t *testing.T) {
 	}
 }
 
+func TestParseSwapEventPreservesCheckpoint(t *testing.T) {
+	checkpoint := onchainSui.CheckpointSequenceNumber(317_016_290)
+	swap, err := ParseSwapEvent(onchainSui.Event{
+		Checkpoint: checkpoint,
+		Type:       "0x1::events::AssetSwap",
+		JSON:       json.RawMessage(`{"pool_id":"0x9","a2b":true,"amount_in":"100","amount_out":"99","fee":"1","before_sqrt_price":"10","after_sqrt_price":"11"}`),
+	})
+	if err != nil {
+		t.Fatalf("ParseSwapEvent() returned an unexpected error: %v", err)
+	}
+	if swap.Checkpoint != checkpoint {
+		t.Fatalf("ParseSwapEvent().Checkpoint = %d, want %d", swap.Checkpoint, checkpoint)
+	}
+}
+
 func testDeployment() Deployment {
 	packageAddress, _ := onchainSui.ParseAddress("0x1")
 	config, _ := onchainSui.ParseAddress("0x2")

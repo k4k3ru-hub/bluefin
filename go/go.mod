@@ -2,7 +2,7 @@ module github.com/k4k3ru-hub/bluefin/go
 
 go 1.25.7
 
-require github.com/k4k3ru-hub/onchain/go v0.0.0-20260830151511-f3c3a417c589
+require github.com/k4k3ru-hub/onchain/go v0.0.0-20260831085209-63feb4e77b46
 
 exclude google.golang.org/genproto v0.0.0-20200331122359-1ee6d9798940
 
