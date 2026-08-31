@@ -61,6 +61,25 @@ func TestPoolQuoteAndFlashSwap(t *testing.T) {
 	if err != nil || len(tx.Commands) != 2 {
 		t.Fatalf("Build()=%+v, %v", tx, err)
 	}
+	builder = onchainSui.NewProgrammableTransactionBuilder()
+	flash, err = AppendFlashSwap(builder, testDeployment(), *pool, true, 100, big.NewInt(5))
+	if err != nil {
+		t.Fatalf("AppendFlashSwap() returned an unexpected error: %v", err)
+	}
+	if _, err := AppendFlashSwapPayAmount(builder, testDeployment(), *pool, flash); err != nil {
+		t.Fatalf("AppendFlashSwapPayAmount() returned an unexpected error: %v", err)
+	}
+	amount, err := onchainSui.AppendBalanceValue(builder, pool.CoinTypeB, flash.BalanceB)
+	if err != nil {
+		t.Fatalf("AppendBalanceValue() returned an unexpected error: %v", err)
+	}
+	if _, err := AppendSwap(builder, testDeployment(), *pool, SwapBalances{BalanceA: flash.BalanceA, BalanceB: flash.BalanceB}, false, true, amount, 0, big.NewInt(5)); err != nil {
+		t.Fatalf("AppendSwap() returned an unexpected error: %v", err)
+	}
+	tx, err = builder.Build()
+	if err != nil || len(tx.Commands) != 4 || tx.Commands[1].MoveCall.Function != "swap_pay_amount" || tx.Commands[3].MoveCall.Function != "swap" {
+		t.Fatalf("Build()=%+v, %v", tx, err)
+	}
 }
 
 func TestQuoterQuoteExactOutput(t *testing.T) {
