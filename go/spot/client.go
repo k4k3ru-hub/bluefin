@@ -129,6 +129,25 @@ func (c *Client) QuoteExactOutput(ctx context.Context, params QuoteExactOutputPa
 	return c.quoter.QuoteExactOutput(ctx, params)
 }
 
+// QuotePair simulates bid and ask Bluefin Spot quotes in one programmable transaction.
+//
+// Parameters:
+//   - ctx: Request context.
+//   - params: Quote-pair parameters.
+//
+// Returns:
+//   - Quote pair sharing one checkpoint.
+//   - Quote error.
+//
+// Version:
+//   - 2026-09-01: Added.
+func (c *Client) QuotePair(ctx context.Context, params QuotePairParams) (QuotePairResult, error) {
+	if c == nil || c.quoter == nil {
+		return QuotePairResult{}, fmt.Errorf("failed to quote bluefin spot pair: client=null")
+	}
+	return c.quoter.QuotePair(ctx, params)
+}
+
 // Swaps gets historical Bluefin Spot swaps.
 //
 // Parameters:

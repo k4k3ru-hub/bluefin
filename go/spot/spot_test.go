@@ -109,6 +109,31 @@ func TestQuoterQuoteExactOutput(t *testing.T) {
 	}
 }
 
+func TestQuoterQuotePairUsesOneSimulationCheckpoint(t *testing.T) {
+	poolAddress, _ := onchainSui.ParseAddress("0x9")
+	sender, _ := onchainSui.ParseAddress("0xa")
+	pool := Pool{Address: poolAddress, InitialVersion: 3, CoinTypeA: "0x2::sui::SUI", CoinTypeB: "0x3::usdc::USDC"}
+	value := make([]byte, 135)
+	binary.LittleEndian.PutUint64(value[2:10], 100)
+	binary.LittleEndian.PutUint64(value[18:26], 99)
+	checkpoint := onchainSui.CheckpointSequenceNumber(123)
+	simulator := &testSimulator{result: &onchainSui.SimulationResult{Checkpoint: checkpoint, CommandResults: []onchainSui.SimulationCommandResult{
+		{ReturnValues: []onchainSui.CommandOutput{{BCS: value}}},
+		{ReturnValues: []onchainSui.CommandOutput{{BCS: value}}},
+	}}}
+	quoter, _ := NewQuoter(testDeployment(), simulator)
+	result, err := quoter.QuotePair(context.Background(), QuotePairParams{
+		Bid: QuoteExactInputParams{Sender: sender, Pool: pool, AmountIn: 100, A2B: true, SqrtPriceLimit: big.NewInt(5)},
+		Ask: QuoteExactOutputParams{Sender: sender, Pool: pool, AmountOut: 100, A2B: false, SqrtPriceLimit: big.NewInt(5)},
+	})
+	if err != nil {
+		t.Fatalf("QuotePair() error = %v", err)
+	}
+	if result.Checkpoint != checkpoint || result.Bid.Checkpoint != checkpoint || result.Ask.Checkpoint != checkpoint || len(simulator.request.Transaction.Commands) != 2 {
+		t.Fatalf("QuotePair() = %+v commands=%d", result, len(simulator.request.Transaction.Commands))
+	}
+}
+
 func TestParseSwapEventPreservesCheckpoint(t *testing.T) {
 	checkpoint := onchainSui.CheckpointSequenceNumber(317_016_290)
 	swap, err := ParseSwapEvent(onchainSui.Event{

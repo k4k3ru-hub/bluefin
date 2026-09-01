@@ -130,6 +130,17 @@ type QuoteExactOutputParams struct {
 	SqrtPriceLimit *big.Int
 }
 
+type QuotePairParams struct {
+	Bid QuoteExactInputParams
+	Ask QuoteExactOutputParams
+}
+
+type QuotePairResult struct {
+	Bid        QuoteResult
+	Ask        QuoteResult
+	Checkpoint onchainSui.CheckpointSequenceNumber
+}
+
 type QuoteResult struct {
 	AmountIn       uint64
 	AmountOut      uint64
@@ -210,6 +221,55 @@ func (q *Quoter) QuoteExactOutput(ctx context.Context, params QuoteExactOutputPa
 	return result, nil
 }
 
+// QuotePair simulates bid and ask quotes in one programmable transaction.
+//
+// Parameters:
+//   - ctx: Request context.
+//   - params: Bid and ask quote parameters.
+//
+// Returns:
+//   - Quote pair sharing one simulation checkpoint.
+//   - Quote error.
+//
+// Version:
+//   - 2026-09-01: Added.
+func (q *Quoter) QuotePair(ctx context.Context, params QuotePairParams) (QuotePairResult, error) {
+	if q == nil || q.simulator == nil {
+		return QuotePairResult{}, fmt.Errorf("failed to quote bluefin spot pair: quoter=null")
+	}
+	if params.Bid.Sender != params.Ask.Sender || params.Bid.Pool.Address != params.Ask.Pool.Address || params.Bid.Pool.InitialVersion != params.Ask.Pool.InitialVersion {
+		return QuotePairResult{}, fmt.Errorf("failed to quote bluefin spot pair: parameters=invalid")
+	}
+	builder := onchainSui.NewProgrammableTransactionBuilder()
+	if err := q.appendQuoteCall(builder, params.Bid.Sender, params.Bid.Pool, params.Bid.AmountIn, params.Bid.A2B, true, params.Bid.SqrtPriceLimit); err != nil {
+		return QuotePairResult{}, fmt.Errorf("failed to quote bluefin spot pair: %w", err)
+	}
+	if err := q.appendQuoteCall(builder, params.Ask.Sender, params.Ask.Pool, params.Ask.AmountOut, params.Ask.A2B, false, params.Ask.SqrtPriceLimit); err != nil {
+		return QuotePairResult{}, fmt.Errorf("failed to quote bluefin spot pair: %w", err)
+	}
+	transaction, err := builder.Build()
+	if err != nil {
+		return QuotePairResult{}, fmt.Errorf("failed to quote bluefin spot pair: %w", err)
+	}
+	simulation, err := q.simulator.SimulateTransaction(ctx, onchainSui.SimulationRequest{Sender: params.Bid.Sender, Transaction: transaction})
+	if err != nil {
+		return QuotePairResult{}, fmt.Errorf("failed to quote bluefin spot pair: %w", err)
+	}
+	if simulation == nil || len(simulation.CommandResults) != 2 {
+		return QuotePairResult{}, fmt.Errorf("failed to quote bluefin spot pair: command_result=invalid")
+	}
+	bid, err := parseBluefinCommandQuote(simulation.CommandResults[0], true)
+	if err != nil {
+		return QuotePairResult{}, fmt.Errorf("failed to quote bluefin spot pair: bid=invalid: %w", err)
+	}
+	ask, err := parseBluefinCommandQuote(simulation.CommandResults[1], false)
+	if err != nil {
+		return QuotePairResult{}, fmt.Errorf("failed to quote bluefin spot pair: ask=invalid: %w", err)
+	}
+	bid.Checkpoint, ask.Checkpoint = simulation.Checkpoint, simulation.Checkpoint
+	return QuotePairResult{Bid: bid, Ask: ask, Checkpoint: simulation.Checkpoint}, nil
+}
+
 func (q *Quoter) quote(ctx context.Context, sender onchainSui.Address, poolConfig Pool, amount uint64, a2b, byAmountIn bool, sqrtPriceLimit *big.Int) (QuoteResult, error) {
 	if q == nil || q.simulator == nil {
 		return QuoteResult{}, fmt.Errorf("failed to quote bluefin spot swap: quoter=null")
@@ -221,17 +281,8 @@ func (q *Quoter) quote(ctx context.Context, sender onchainSui.Address, poolConfi
 		return QuoteResult{}, fmt.Errorf("failed to quote bluefin spot swap: sqrt_price_limit=invalid")
 	}
 	builder := onchainSui.NewProgrammableTransactionBuilder()
-	pool, err := builder.Object(onchainSui.InputKindShared, onchainSui.ObjectInput{Address: poolConfig.Address, Version: poolConfig.InitialVersion})
-	if err != nil {
-		return QuoteResult{}, fmt.Errorf("failed to quote bluefin spot swap: %w", err)
-	}
-	a2bArgument, _ := builder.Pure(bcsBool(a2b))
-	byAmountInArgument, _ := builder.Pure(bcsBool(byAmountIn))
-	amountArgument, _ := builder.Pure(bcsUint64(amount))
-	limitArgument, _ := builder.Pure(bcsUint128(sqrtPriceLimit))
-	_, err = builder.MoveCall(onchainSui.MoveCall{Package: q.deployment.PublishedAt, Module: q.deployment.PoolModule, Function: "calculate_swap_results", TypeArguments: []string{poolConfig.CoinTypeA, poolConfig.CoinTypeB}, Arguments: []onchainSui.Argument{pool, a2bArgument, byAmountInArgument, amountArgument, limitArgument}})
-	if err != nil {
-		return QuoteResult{}, fmt.Errorf("failed to quote bluefin spot swap: %w", err)
+	if err := q.appendQuoteCall(builder, sender, poolConfig, amount, a2b, byAmountIn, sqrtPriceLimit); err != nil {
+		return QuoteResult{}, err
 	}
 	transaction, err := builder.Build()
 	if err != nil {
@@ -241,20 +292,47 @@ func (q *Quoter) quote(ctx context.Context, sender onchainSui.Address, poolConfi
 	if err != nil {
 		return QuoteResult{}, fmt.Errorf("failed to quote bluefin spot swap: %w", err)
 	}
-	if simulation == nil {
-		return QuoteResult{}, fmt.Errorf("failed to quote bluefin spot swap: simulation=null")
-	}
-	if len(simulation.CommandResults) != 1 || len(simulation.CommandResults[0].ReturnValues) == 0 {
+	if simulation == nil || len(simulation.CommandResults) != 1 {
 		return QuoteResult{}, fmt.Errorf("failed to quote bluefin spot swap: command_result=invalid")
 	}
-	result, err := parseSwapResult(simulation.CommandResults[0].ReturnValues[0].BCS, byAmountIn)
+	result, err := parseBluefinCommandQuote(simulation.CommandResults[0], byAmountIn)
 	if err != nil {
 		return QuoteResult{}, fmt.Errorf("failed to quote bluefin spot swap: %w", err)
+	}
+	result.Checkpoint = simulation.Checkpoint
+	return result, nil
+}
+
+func (q *Quoter) appendQuoteCall(builder *onchainSui.ProgrammableTransactionBuilder, sender onchainSui.Address, poolConfig Pool, amount uint64, a2b, byAmountIn bool, sqrtPriceLimit *big.Int) error {
+	if builder == nil {
+		return fmt.Errorf("failed to append bluefin spot quote: builder=null")
+	}
+	pool, err := builder.Object(onchainSui.InputKindShared, onchainSui.ObjectInput{Address: poolConfig.Address, Version: poolConfig.InitialVersion})
+	if err != nil {
+		return fmt.Errorf("failed to append bluefin spot quote: %w", err)
+	}
+	a2bArgument, _ := builder.Pure(bcsBool(a2b))
+	byAmountInArgument, _ := builder.Pure(bcsBool(byAmountIn))
+	amountArgument, _ := builder.Pure(bcsUint64(amount))
+	limitArgument, _ := builder.Pure(bcsUint128(sqrtPriceLimit))
+	_, err = builder.MoveCall(onchainSui.MoveCall{Package: q.deployment.PublishedAt, Module: q.deployment.PoolModule, Function: "calculate_swap_results", TypeArguments: []string{poolConfig.CoinTypeA, poolConfig.CoinTypeB}, Arguments: []onchainSui.Argument{pool, a2bArgument, byAmountInArgument, amountArgument, limitArgument}})
+	if err != nil {
+		return fmt.Errorf("failed to append bluefin spot quote: %w", err)
+	}
+	return nil
+}
+
+func parseBluefinCommandQuote(command onchainSui.SimulationCommandResult, byAmountIn bool) (QuoteResult, error) {
+	if len(command.ReturnValues) == 0 {
+		return QuoteResult{}, fmt.Errorf("failed to parse bluefin spot command quote: return_values=empty")
+	}
+	result, err := parseSwapResult(command.ReturnValues[0].BCS, byAmountIn)
+	if err != nil {
+		return QuoteResult{}, err
 	}
 	if result.AmountIn == 0 || result.AmountOut == 0 || result.IsExceed {
 		return QuoteResult{}, fmt.Errorf("failed to quote bluefin spot swap: quote=invalid")
 	}
-	result.Checkpoint = simulation.Checkpoint
 	return result, nil
 }
 
