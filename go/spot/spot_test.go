@@ -36,7 +36,8 @@ func TestPoolQuoteAndFlashSwap(t *testing.T) {
 	binary.LittleEndian.PutUint64(value[18:26], 99)
 	binary.LittleEndian.PutUint64(value[42:50], 1)
 	value[74] = 11
-	simulator := &testSimulator{result: &onchainSui.SimulationResult{CommandResults: []onchainSui.SimulationCommandResult{{ReturnValues: []onchainSui.CommandOutput{{BCS: value}}}}}}
+	checkpoint := onchainSui.CheckpointSequenceNumber(123)
+	simulator := &testSimulator{result: &onchainSui.SimulationResult{Checkpoint: checkpoint, CommandResults: []onchainSui.SimulationCommandResult{{ReturnValues: []onchainSui.CommandOutput{{BCS: value}}}}}}
 	quoter, err := NewQuoter(testDeployment(), simulator)
 	if err != nil {
 		t.Fatalf("NewQuoter() returned an unexpected error: %v", err)
@@ -46,7 +47,7 @@ func TestPoolQuoteAndFlashSwap(t *testing.T) {
 	if err != nil {
 		t.Fatalf("QuoteExactInput() returned an unexpected error: %v", err)
 	}
-	if quote.AmountOut != 99 || simulator.request.Transaction.Commands[0].MoveCall.Function != "calculate_swap_results" {
+	if quote.AmountOut != 99 || quote.Checkpoint != checkpoint || simulator.request.Transaction.Commands[0].MoveCall.Function != "calculate_swap_results" {
 		t.Fatalf("quote=%+v transaction=%+v", quote, simulator.request.Transaction)
 	}
 	builder := onchainSui.NewProgrammableTransactionBuilder()
